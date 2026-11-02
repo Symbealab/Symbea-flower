@@ -1,14 +1,14 @@
 # Symbea-flower
 
 対称カオス写像が描く 9 種の花を 3 × 3 に配置するジェネレーティブ・ビジュアル（プロトタイプ v0）。
-ベース：[Generative Flower — 2D ver.2](https://york-14.github.io/Generative-flower-Order-Chaos/2d-v2.html)
+ベース：[Generative Flower — 2D ver.2](https://symbealab.github.io/Generative-flower-Order-Chaos/2d-v2.html)
 
-**🌐 https://york-14.github.io/Symbea-flower/** （`?seed=12桁` で再現）
+**🌐 https://symbealab.github.io/Symbea-flower/** （`?seed=12桁` で再現）
 
 | ページ | URL | 内容 |
 |---|---|---|
-| 3 × 3 | https://york-14.github.io/Symbea-flower/ | 9 種の花を 3 × 3 に配置（`docs/index.html`） |
-| 1 輪 | https://york-14.github.io/Symbea-flower/single.html | 花を 1 輪だけ探索。花の種類もシードでランダム（`docs/single.html`） |
+| 3 × 3 | https://symbealab.github.io/Symbea-flower/ | 9 種の花を 3 × 3 に配置（`docs/index.html`） |
+| 1 輪 | https://symbealab.github.io/Symbea-flower/single.html | 花を 1 輪だけ探索。花の種類もシードでランダム（`docs/single.html`） |
 
 - 2 つのページは同じ `docs/js/symbea.js` と `docs/css/symbea.css` を使い、`<body data-grid="3|1">` で切り替える
 - 1 輪の花は、同じシードの 3 × 3 の左上と同じ花（種類・パラメータ）。保存状態（localStorage）はページごとに別
