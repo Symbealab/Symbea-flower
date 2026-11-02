@@ -38,11 +38,16 @@
       <button id="seedNow">今の日時で生成</button>
       <label class="check"><input type="checkbox" id="rollColor"> 探索のたびに色も変える</label>
       <div id="layoutSliders"></div>
+      <div class="seg" role="radiogroup" aria-label="壁紙のサイズ">
+        <label><input type="radio" name="wpsize" value="iphone"> iPhone 1320×2868</label>
+        <label><input type="radio" name="wpsize" value="android"> Android 1440×3200</label>
+      </div>
       <div class="row">
         <button id="saveAll">PNG で保存</button>
         <button id="saveTall">1320 × 2868 で保存</button>
       </div>
       <button id="savePattern">パターン壁紙（1320 × 2868）で保存</button>
+      <button id="saveBoth" hidden>両サイズを保存（縦長 2 枚）</button>
 
       <h4>色彩</h4>
       <div class="seg" role="radiogroup" aria-label="色の割り当て">
@@ -69,8 +74,11 @@
   <p class="hint">シードは 12 桁の数（000000000000〜999999999999）で、日付 YYYYMMDDHHmm もそのまま使えます。
   左下のシードを入力欄に入れるか、URL に <code>?seed=12桁の数</code> を付けると、同じ 9 つの花を再現できます。数字以外の文字列はハッシュして 12 桁に収めます。
   マス i の花は乱数系列 i、色は系列 9、並び順は系列 10 です。変奏でシードの結果から変わったときは、シードの後ろに <code>*</code> が付きます。
-  「1320 × 2868 で保存」は、ビジュアルを縦長の画像の上下中央に置き、ビジュアルの左下にシードを入れて保存します。
-  「パターン壁紙」は、今の 9 つの花を写して横 9 個で敷き詰めた 1320 × 2868 の画像です。ブロックごとの並び順・回転・反転はシードで決まります。ファイル名はシードです。</p>
+  縦長の壁紙は iPhone（1320 × 2868）と Android（1440 × 3200）の 2 サイズから選べます（選んだサイズは次回も使います）。
+  縦長は、ビジュアルを画像の幅の 85% に縮めて上下左右の中央に置き、ビジュアルの左下にシードを入れて保存します。
+  スマホは壁紙を画面いっぱいに拡大して、はみ出しを切り取ります（21:9 の細長い画面では左右、視差効果では周囲が切れます）。85% の内側を安全領域にして、どの機種でも花とシードが欠けないようにしています。
+  「パターン壁紙」は、今の 9 つの花を写して横 9 個で敷き詰めた、選んだサイズの画像です。ブロックごとの並び順・回転・反転はシードで決まります。敷き詰めは画面の端で切れてもよく、シードだけ左右・下端から幅の 7.5% 以上内側に入れます。
+  パソコンでは「両サイズを保存」で、縦長の 2 サイズを続けてダウンロードできます。ファイル名はシードとサイズ（_1320x2868 / _1440x3200）です。</p>
 
   <footer>Base: <a href="https://github.com/Symbealab/Generative-flower-Order-Chaos">github.com/Symbealab/Generative-flower-Order-Chaos</a></footer>
 </main>

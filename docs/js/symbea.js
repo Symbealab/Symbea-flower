@@ -720,17 +720,23 @@
     drawSeedLabel(c, S, S, 0.013, p.x, p.y);
     return out;
   }
-  // 縦長 1320 × 2868 px：背景で塗りつぶし、ビジュアル（正方形）を幅いっぱいに上下中央へ置く。
+  // 壁紙のサイズ（iPhone / Android）。選んだサイズは両ページ共通で覚えておく
+  const WP_SIZES = { iphone: { w: 1320, h: 2868, label: "iPhone" }, android: { w: 1440, h: 3200, label: "Android" } };
+  const WKEY = "symbea.flower.wpsize";
+  let wpSize = WP_SIZES[store.get(WKEY)] ? store.get(WKEY) : "iphone";
+  // 安全領域：スマホは画像を画面いっぱいに拡大してはみ出しを切るので（21:9 では左右、視差効果では周囲が切れる）、
+  // ビジュアルは画像の幅の SAFE 倍に縮めて中央に置き、パターンのシードは幅の (1 − SAFE) / 2 以上内側に入れる
+  const SAFE = 0.85;
+  // 縦長 W × H px：背景で塗りつぶし、ビジュアル（正方形、一辺は幅の SAFE 倍）を上下左右の中央へ置く。
   // シードは画像の左下ではなく、ビジュアルの左下（正方形の PNG と同じ位置・同じ比率の大きさ）に入れる
-  const WP_W = 1320, WP_H = 2868;
-  function wallpaper() {
-    const out = Object.assign(document.createElement("canvas"), { width: WP_W, height: WP_H }), c = out.getContext("2d");
-    const top = Math.round((WP_H - WP_W) / 2);
-    if (!color.transparent) { c.fillStyle = color.bg; c.fillRect(0, 0, WP_W, WP_H); }
+  function wallpaper(W, H) {
+    const out = Object.assign(document.createElement("canvas"), { width: W, height: H }), c = out.getContext("2d");
+    const V = Math.round(W * SAFE), left = Math.round((W - V) / 2), top = Math.round((H - V) / 2);
+    if (!color.transparent) { c.fillStyle = color.bg; c.fillRect(0, 0, W, H); }
     c.imageSmoothingQuality = "high";
-    c.drawImage(canvas, 0, top, WP_W, WP_W);
-    const p = seedPos(), k = WP_W / S;
-    drawSeedLabel(c, WP_W, WP_W, 0.013, p.x * k, top + p.y * k);
+    c.drawImage(canvas, left, top, V, V);
+    const p = seedPos(), k = V / S;
+    drawSeedLabel(c, V, V, 0.013, left + p.x * k, top + p.y * k);
     return out;
   }
   // PNG の tEXt チャンク（Latin-1 のみ）にシードを書き込む（IHDR の直後に挿入）
@@ -760,15 +766,16 @@
     c.imageSmoothingQuality = "high"; c.drawImage(cur, 0, 0, w, w);
     return out;
   }
-  // パターン壁紙 1320 × 2868 px：今の 3 × 3 の 9 つの花を写して、横 3 ブロック（花 9 個）で敷き詰める。
+  // パターン壁紙 W × H px：今の 3 × 3 の 9 つの花を写して、横 3 ブロック（花 9 個）で敷き詰める。
   // ブロックごとに、9 つの並び順・花ごとの回転（90° 単位）・左右反転をシードの系列 11 で決める（同じシードなら同じ柄）。
-  // 縦は欠けない段数（6 段）を上下中央に置く。シードはパターンの左下、下の余白に 1 つだけ入れる
+  // 縦は欠けない段数（6 段）を上下中央に置く（端が画面で切れてもよい）。シードはパターンの左下に 1 つだけ入れ、
+  // 安全領域に収まるよう、左端・下端から幅の (1 − SAFE) / 2 以上内側に置く
   const PT_COLS = 3;
-  function pattern() {
-    const B = WP_W / PT_COLS, cell = B / 3, rows = Math.floor(WP_H / B), y0 = Math.round((WP_H - rows * B) / 2);
+  function pattern(W, H) {
+    const B = W / PT_COLS, cell = B / 3, rows = Math.floor(H / B), y0 = Math.round((H - rows * B) / 2);
     const sheet = downscale(canvas, Math.round(cell * 3)), sc = sheet.width / 3;
-    const out = Object.assign(document.createElement("canvas"), { width: WP_W, height: WP_H }), c = out.getContext("2d");
-    if (!color.transparent) { c.fillStyle = color.bg; c.fillRect(0, 0, WP_W, WP_H); }
+    const out = Object.assign(document.createElement("canvas"), { width: W, height: H }), c = out.getContext("2d");
+    if (!color.transparent) { c.fillStyle = color.bg; c.fillRect(0, 0, W, H); }
     const r = seedRng(seed ?? 0, 11);
     for (let by = 0; by < rows; by++) for (let bx = 0; bx < PT_COLS; bx++) {
       const perm = [...Array(9).keys()];
@@ -781,38 +788,64 @@
         c.restore();
       });
     }
-    drawSeedLabel(c, WP_W, WP_W, 0.013, WP_W * 0.012, y0 + rows * B + WP_W * 0.03);
+    const m = W * (1 - SAFE) / 2;
+    drawSeedLabel(c, W, W, 0.013, Math.max(W * 0.012, m), Math.min(y0 + rows * B + W * 0.03, H - m));
     return out;
   }
-  // ファイル名はシード（1 輪は _1x1、縦長は _1320x2868、編集済みは _edited を付ける）
+  // ファイル名はシード（1 輪は _1x1、縦長は _1320x2868 / _1440x3200、編集済みは _edited を付ける）
   function fileName(suffix) {
     const base = seed !== null ? pad12(seed) : "symbea_flower";
     return `${base}${edited ? "_edited" : ""}${G === 1 ? "_1x1" : ""}${suffix}.png`;
   }
   function savePNG(out, name) {
-    out.toBlob(async png => {
-      if (!png) return;
+    return new Promise(done => out.toBlob(async png => {
+      if (!png) return done();
       const src = /^https?:$/.test(location.protocol) ? `${location.origin}${location.pathname}?seed=${pad12(seed)}` : "";
       const blob = seed === null ? png : pngText(await png.arrayBuffer(), [
         ["Title", "Symbea Flower"],
         ["Seed", pad12(seed) + (edited ? " (edited)" : "")],
         ["Source", !edited ? src : ""],
       ].filter(([, v]) => v));
+      if (!touch) {
+        // 続けて保存しても前のダウンロードが切れないよう、URL ごとに少し待ってから破棄する
+        const url = URL.createObjectURL(blob), a = document.createElement("a");
+        a.download = name; a.href = url; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        return done();
+      }
       if (saveUrl) URL.revokeObjectURL(saveUrl);
       saveUrl = URL.createObjectURL(blob);
-      if (!touch) {
-        const a = document.createElement("a"); a.download = name; a.href = saveUrl; a.click();
-        return;
-      }
       saveFile = new File([blob], name, { type: "image/png" });
       $("saverImg").src = saveUrl;
       $("saverShare").hidden = !(navigator.canShare && navigator.canShare({ files: [saveFile] }));
       $("saver").hidden = false;
-    }, "image/png");
+      done();
+    }, "image/png"));
   }
   $("saveAll").addEventListener("click", () => savePNG(withSeedLabel(), fileName("")));
-  $("saveTall").addEventListener("click", () => savePNG(wallpaper(), fileName(`_${WP_W}x${WP_H}`)));
-  if ($("savePattern")) $("savePattern").addEventListener("click", () => savePNG(pattern(), fileName(`_pattern_${WP_W}x${WP_H}`)));
+  const saveTall = ({ w, h }) => savePNG(wallpaper(w, h), fileName(`_${w}x${h}`));
+  const savePattern = ({ w, h }) => savePNG(pattern(w, h), fileName(`_pattern_${w}x${h}`));
+  // サイズの切り替え：ボタン名を選んだサイズに合わせる
+  function syncSize() {
+    const { w, h } = WP_SIZES[wpSize];
+    document.querySelectorAll('input[name="wpsize"]').forEach(r => { r.checked = r.value === wpSize; });
+    $("saveTall").textContent = `${w} × ${h} で保存`;
+    if ($("savePattern")) $("savePattern").textContent = `パターン壁紙（${w} × ${h}）で保存`;
+  }
+  document.querySelectorAll('input[name="wpsize"]').forEach(r => r.addEventListener("change", () => {
+    if (!r.checked || !WP_SIZES[r.value]) return;
+    wpSize = r.value; store.set(WKEY, wpSize); syncSize();
+  }));
+  syncSize();
+  $("saveTall").addEventListener("click", () => saveTall(WP_SIZES[wpSize]));
+  if ($("savePattern")) $("savePattern").addEventListener("click", () => savePattern(WP_SIZES[wpSize]));
+  // パソコンだけ：縦長の壁紙を 2 サイズとも続けてダウンロードする
+  if ($("saveBoth")) {
+    $("saveBoth").hidden = touch;
+    $("saveBoth").addEventListener("click", async () => {
+      for (const sz of Object.values(WP_SIZES)) await saveTall(sz);
+    });
+  }
   $("saverShare").addEventListener("click", () => { if (saveFile) navigator.share({ files: [saveFile] }).catch(() => {}); });
   const closeSaver = () => { $("saver").hidden = true; };
   $("saverClose").addEventListener("click", closeSaver);
