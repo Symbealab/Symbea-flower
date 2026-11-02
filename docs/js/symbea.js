@@ -839,11 +839,12 @@
   syncSize();
   $("saveTall").addEventListener("click", () => saveTall(WP_SIZES[wpSize]));
   if ($("savePattern")) $("savePattern").addEventListener("click", () => savePattern(WP_SIZES[wpSize]));
-  // パソコンだけ：縦長の壁紙を 2 サイズとも続けてダウンロードする
-  if ($("saveBoth")) {
-    $("saveBoth").hidden = touch;
-    $("saveBoth").addEventListener("click", async () => {
-      for (const sz of Object.values(WP_SIZES)) await saveTall(sz);
+  // パソコンだけ：縦長・パターンの壁紙を 2 サイズとも続けてダウンロードする
+  for (const [id, fn] of [["saveBoth", saveTall], ["savePatternBoth", savePattern]]) {
+    if (!$(id)) continue;
+    $(id).hidden = touch;
+    $(id).addEventListener("click", async () => {
+      for (const sz of Object.values(WP_SIZES)) await fn(sz);
     });
   }
   $("saverShare").addEventListener("click", () => { if (saveFile) navigator.share({ files: [saveFile] }).catch(() => {}); });
