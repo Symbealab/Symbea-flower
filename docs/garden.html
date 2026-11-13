@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Symbea Flower — 花畑</title>
+<meta name="description" content="対称カオス写像が描く 9 種の花（ポインセチア、マーガレット、アマリリス、アネモネ、センニチコウ、ダリア、ニゲラ、モモ、マリーゴールド）を、大・中・小の大きさで画面いっぱいに並べた花畑。">
+<link rel="stylesheet" href="css/symbea.css">
+</head>
+<body data-grid="garden">
+<main>
+  <h1>Symbea Flower — 花畑</h1>
+  <p class="lead">対称カオス写像 z<sub>t+1</sub> = ( λ + α|z|² + β Re(z<sup>n</sup>) + iω ) z + γ z̄<sup>n−1</sup> が描く 9 種の花を、
+  大・中・小の大きさでランダムに、重なりを少しだけ許して画面いっぱいに並べます。同じシードの 3 × 3 版と同じ 9 つの花を使い、1 輪ずつ回転と姿（花びらの輪郭・ねじれ・層の構成）を変えています。
+  花をクリックして選ぶと、ほかの花をそのデザインの変奏で再探索できます。
+  <a href="./">3 × 3 版へ →</a> <a href="single.html">1 輪だけを探索する →</a></p>
+
+  <div class="studio">
+    <div class="canvas-wrap" id="wrap" tabindex="0" role="button" aria-label="花を選ぶ">
+      <canvas id="cv" width="1440" height="1440"></canvas>
+      <div id="marks"></div>
+      <div id="seed"></div>
+    </div>
+    <div class="panel">
+      <h4>全体</h4>
+      <div class="seedcur">
+        <code id="seedCur" title="クリックで全選択">—</code>
+        <button id="seedCopy">コピー</button>
+      </div>
+      <button id="rollAll" class="primary">ランダム探索</button>
+      <button id="variations">選択したデザインで、再探索する</button>
+      <p class="hint" style="margin:4px 0 0">花をクリックして選ぶと、ほかの花をそのデザインの変奏で再探索します。</p>
+      <div class="seedrow">
+        <input type="text" id="seedIn" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="12 桁のシード" aria-label="シード（12 桁）">
+        <button id="seedGo">このシードで生成</button>
+      </div>
+      <p class="hint" id="seedErr" role="alert" style="margin:4px 0 0;color:#c0392b" hidden></p>
+      <button id="seedNow">今の日時で生成</button>
+      <label class="check"><input type="checkbox" id="rollColor"> 探索のたびに色も変える</label>
+      <div id="layoutSliders"></div>
+      <div class="seg" role="radiogroup" aria-label="壁紙のサイズ">
+        <label><input type="radio" name="wpsize" value="iphone"> iPhone 1320×2868</label>
+        <label><input type="radio" name="wpsize" value="android"> Android 1440×3200</label>
+      </div>
+      <div class="row">
+        <button id="saveAll">PNG で保存</button>
+        <button id="saveTall">1320 × 2868 で保存</button>
+      </div>
+      <button id="saveBoth" hidden>縦長を両サイズで保存</button>
+
+      <h4>色彩</h4>
+      <div class="seg" role="radiogroup" aria-label="色の割り当て">
+        <label><input type="radio" name="cmode" value="same"> 9 つ同色</label>
+        <label><input type="radio" name="cmode" value="each"> 9 つ別色</label>
+      </div>
+      <div class="colors" id="sameColors"><label>花の色<input type="color" id="base"></label></div>
+      <div class="grid9" id="eachColors"></div>
+      <div class="colors"><label>背景<input type="color" id="bg"></label></div>
+      <label class="check"><input type="checkbox" id="bgClear"> 背景を透明にする（PNG も透明で保存）</label>
+      <div id="colorSliders"></div>
+      <div id="swatch"></div>
+      <div class="row">
+        <button id="randColor">色を抽選</button>
+        <button id="resetColor">色をリセット</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="hint">花の探索・シードの仕組みは 3 × 3 版と同じで、同じシードなら同じ 9 つの花になります（マス i の花は乱数系列 i、色は系列 9、並び順は系列 10）。
+  花畑の並べ方はシードの系列 12 で決まります。大きい花（直径は基準の 44〜56%）を 2〜3 輪、中くらい（27〜35%）、小さい花（13〜20%）の順に、
+  ほかの花と半径の和の 86% より近づかない場所をランダムに探して置き、最後に残った隙間をもう一度、中 → 小の順で埋めます（画面の端からは半径の 25% まではみ出してよい）。
+  大きい順に 9 輪は 3 × 3 の並び順の 9 つの花そのもの、それより小さい花は 9 つからランダムに選び、回転と姿の変化を 1 輪ずつ変えます。
+  「大きさ」は花の大きさの基準（ビジュアルの一辺の 70% × 大きさ）で、変えると並べ直します。同じシード・同じ大きさなら同じ花畑になります。
+  左下のシードを入力欄に入れるか、URL に <code>?seed=12桁の数</code> を付けると、同じ花畑を再現できます。
+  縦長の壁紙は iPhone（1320 × 2868）と Android（1440 × 3200）の 2 サイズから選べ、ビジュアルを画像の幅の 85% に縮めて中央に置きます。ファイル名はシードに <code>_garden</code> を付けたものです。</p>
+
+  <footer>Base: <a href="https://github.com/Symbealab/Generative-flower-Order-Chaos">github.com/Symbealab/Generative-flower-Order-Chaos</a></footer>
+</main>
+
+<div class="saver" id="saver" role="dialog" aria-modal="true" aria-label="画像を保存" hidden>
+  <div class="saver-box">
+    <img id="saverImg" alt="保存する画像">
+    <p>画像を長押しして「"写真"に保存」を選ぶと、写真に保存できます。</p>
+    <div class="saver-btns">
+      <button id="saverShare" class="primary" hidden>共有・保存</button>
+      <button id="saverClose">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/symbea.js"></script>
+</body>
+</html>
