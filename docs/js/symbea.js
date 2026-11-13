@@ -1,7 +1,9 @@
 (() => {
   const $ = id => document.getElementById(id);
-  // 1 ページで 3 × 3（index.html）と 1 輪（single.html）を切り替える。<body data-grid="3|1">
-  const G = +document.body.dataset.grid || 3, N = G * G;
+  // 1 ページで 3 × 3（index.html）・1 輪（single.html）・花畑（garden.html）を切り替える。<body data-grid="3|1|garden">
+  // 花畑は 3 × 3 と同じ 9 つの花（探索の単位）を、大・中・小の大きさで画面いっぱいに並べる
+  const GARDEN = document.body.dataset.grid === "garden";
+  const G = GARDEN ? 3 : +document.body.dataset.grid || 3, N = G * G;
   const store = {
     get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
@@ -144,10 +146,11 @@
   // 姿の変化：パラメータから決まる乱数で、花の大きさ・花びらの輪郭・ねじれ・層の構成を変える。
   // 輪郭は r → r·(1 − a(1 − |cos(k(θ − φ)/2)|^p))（k = n または 2n 枚の花びら、a: 切れ込みの深さ、p: 尖り）、
   // ねじれは θ → θ + tw·r。vary（パネルの「変化」）が 0 なら既定の姿、1 で花ごとの範囲いっぱいに変わる
-  function form(q, c, vary) {
-    const r = hashRng(q, 1), F = c.form || {}, k = q.n * pick(r, F.m || [1]);
+  // salt：花畑で同じパラメータの花を並べるとき、1 輪ずつ姿を変える（0 なら 3 × 3・1 輪と同じ姿）
+  function form(q, c, vary, salt = 0) {
+    const r = hashRng(q, salt ? 1000 + salt * 2 : 1), F = c.form || {}, k = q.n * pick(r, F.m || [1]);
     const size = rnd(r, ...(F.size || [1, 1])), a = rnd(r, ...(F.a || [0, 0])), p = rnd(r, ...(F.p || [1, 1]));
-    const phase = r() < 0.5 ? 0 : Math.PI / k, tw = (F.tw || 0) * rnd(r, -1, 1), lr = hashRng(q, 2);
+    const phase = r() < 0.5 ? 0 : Math.PI / k, tw = (F.tw || 0) * rnd(r, -1, 1), lr = hashRng(q, salt ? 1001 + salt * 2 : 2);
     return {
       k, p, phase, size: 1 - (1 - size) * vary, a: Math.min(0.9, a * vary), tw: tw * vary,
       r: lr,
@@ -360,12 +363,12 @@
   // 一枚のキャンバスに 9 つの花を描く
   // 花ごとにヒストグラムを持ち、合成時に花ごとに正規化 → 花ごとの色で塗って重ねる
   // ==================================================================================
-  const SKEY = G === 1 ? "symbea.flower.single.v1" : "symbea.flower.v3";   // v2 以前は花の種類・姿の変化が違うので読まない
+  const SKEY = GARDEN ? "symbea.flower.garden.v1" : G === 1 ? "symbea.flower.single.v1" : "symbea.flower.v3";   // v2 以前は花の種類・姿の変化が違うので読まない
   const saved = store.get(SKEY) || {};
   const color = { ...COLOR_DEFAULT, ...(saved.color || {}) };
   if (!Array.isArray(color.each) || color.each.length !== 9) color.each = [...SKY9];
   if (G === 1) color.mode = "same";          // 1 輪では同色だけ
-  const layout = { size: 0.92, vary: 1, ...(saved.layout || {}) };
+  const layout = { size: GARDEN ? 1 : 0.92, vary: 1, ...(saved.layout || {}) };
   let seed = Number.isSafeInteger(saved.seed) && saved.seed >= 0 && saved.seed < SEED_SPACE ? saved.seed : null, edited = !!saved.edited;
 
   // 点の数は花の面積に比例させる（1 輪は 3 × 3 の 1 マスより 9 倍大きいので、上限 6 倍まで増やす）
@@ -380,12 +383,98 @@
     mark.style.left = `${(i % G) * 100 / G}%`; mark.style.top = `${Math.floor(i / G) * 100 / G}%`;
     mark.style.width = mark.style.height = `${100 / G}%`;
     const busy = Object.assign(document.createElement("span"), { className: "busy", hidden: true });
-    mark.append(busy); $("marks").append(mark);
+    mark.append(busy);
+    if (!GARDEN) $("marks").append(mark);    // 花畑では目印は 1 輪ずつ（relayout で作る）、探索中の表示はまとめて 1 つ
     flowers.push({ idx: i, ci: i, concept: CONCEPTS[i], q: null, job: 0, gen: 0, hist: null, C: 0, max: 1, pts: 0, mark, busy });
   }
   // マス f に花の種類 ci を割り当てる
   function setConcept(f, ci) {
     f.ci = ci; f.concept = CONCEPTS[ci];
+  }
+
+  // ==================================================================================
+  // 花畑：大・中・小の円をランダムに、重なりを少しだけ許して画面いっぱいに詰める。
+  // 配置・どの花を置くか・回転・姿の変化はシードの系列 12 で決まる（同じシードと大きさなら同じ花畑）。
+  // 大きい順に並べ、先頭の 9 輪は 9 つの花（3 × 3 の並び順）そのもの、残りは 9 つの花からランダムに選び、
+  // 回転と姿の変化（花びらの輪郭・ねじれ・層の構成）を 1 輪ずつ変える
+  // ==================================================================================
+  const GSIZES = { L: [0.44, 0.56], M: [0.27, 0.35], S: [0.13, 0.20] };   // 直径（基準の長さ m に対する比）
+  const GMAX = 110;                                                      // 描く量が多くなりすぎないよう上限
+  let pieces = [];
+  function gardenLayout(s) {
+    const r = seedRng(s, 12), m = S * 0.7 * layout.size, out = [];
+    const R = (a, b) => a + r() * (b - a);
+    const fits = (x, y, rad) => out.every(o => Math.hypot(o.x - x, o.y - y) >= (o.r + rad) * 0.86);
+    const place = (cls, count, attempts) => {
+      for (let c = 0; c < count; c++) {
+        for (let t = 0; t < attempts; t++) {
+          const rad = R(...GSIZES[cls]) * m / 2;
+          // 端からは半径の 25% まではみ出してよい（画面の縁まで花で埋める）
+          const x = R(rad * 0.75, S - rad * 0.75), y = R(rad * 0.75, S - rad * 0.75);
+          if (fits(x, y, rad)) { out.push({ cls, x, y, r: rad }); break; }
+        }
+      }
+    };
+    const k = S * S / (m * m);
+    place("L", Math.max(1, Math.round(k * (0.9 + r() * 0.5))), 300);
+    place("M", Math.round(k * 4.5), 300);
+    place("S", 120, 300);
+    place("M", 8, 200); place("S", 60, 200);      // 残った隙間にもう一度、中 → 小の順で
+    out.sort((a, b) => b.r - a.r);
+    return out.slice(0, GMAX).map((o, i) => ({
+      ...o, fi: i < N ? i : Math.floor(r() * N), angle: r() * TAU, salt: i < N ? 0 : 1 + Math.floor(r() * 1e6),
+      job: 0, hist: null, C: 0, max: 1, pts: 0, ox: 0, oy: 0, mark: null,
+    }));
+  }
+  // 並べ直す（シード・大きさが変わったとき）。目印も作り直す
+  function relayout() {
+    pieces.forEach(p => { p.job++; p.hist = null; });
+    gq.length = 0;
+    pieces = gardenLayout(seed ?? 0);
+    const marks = $("marks");
+    marks.replaceChildren(gBusy.parentNode);
+    for (const p of pieces) {
+      p.mark = Object.assign(document.createElement("div"), { className: "mark" });
+      Object.assign(p.mark.style, { left: `${(p.x - p.r) / S * 100}%`, top: `${(p.y - p.r) / S * 100}%`,
+                                    width: `${p.r * 2 / S * 100}%`, height: `${p.r * 2 / S * 100}%`, borderRadius: "50%" });
+      marks.append(p.mark);
+    }
+    requestPaint();
+  }
+  // 花畑の探索中の表示（9 つのうちいくつ探索中か）
+  const gBusy = Object.assign(document.createElement("span"), { className: "busy", hidden: true });
+  if (GARDEN) {
+    const m = Object.assign(document.createElement("div"), { className: "mark" });
+    Object.assign(m.style, { left: 0, top: 0, width: "100%", height: "100%" });
+    m.append(gBusy); $("marks").append(m);
+  }
+  function updateBusy() {
+    if (!GARDEN) return;
+    const k = flowers.filter(f => !f.busy.hidden).length;
+    gBusy.hidden = !k; gBusy.textContent = `探索中…（残り ${k} / ${N}）`;
+  }
+  // 花畑の描画待ち。一度にたくさん描くと重いので、大きい花から 4 輪ずつ
+  const gq = [];
+  let gActive = 0;
+  function enqueuePiece(p) {
+    p.job++; p.hist = null;                      // 描きかけの古い花は止める
+    if (!gq.includes(p)) gq.push(p);
+    gq.sort((a, b) => b.r - a.r);
+    pumpPieces();
+  }
+  function pumpPieces() {
+    while (gActive < 4 && gq.length) {
+      const p = gq.shift(), f = flowers[p.fi];
+      if (!pieces.includes(p) || !f.q) continue;
+      gActive++;
+      const C = Math.round(p.r * 2.2);              // 花は円より少し小さく描かれるので、やや大きめにして隙間を埋める
+      draw(p, f.q, f.concept, C, p.x, p.y, p.angle, p.salt, Math.max(4e5, 2.5e6 * (C / 442) ** 2), () => { gActive--; pumpPieces(); });
+    }
+  }
+  // 花 f（探索の単位）を描き直す。花畑では f を使っている花すべて
+  function clearFlower(f) {
+    f.job++; f.hist = null;
+    if (GARDEN) pieces.forEach(p => { if (p.fi === f.idx) { p.job++; p.hist = null; } });
   }
 
   // 1 フレームに 1 回だけ合成する
@@ -394,10 +483,9 @@
   function paint() {
     const BG = hex2rgb(color.bg), light = isLight(), clear = color.transparent, g = color.gamma, ex = color.exposure;
     F.fill(light ? 1 : 0);
-    for (const f of flowers) {
-      if (!f.hist || !f.q) continue;
-      const C = f.C, h = f.hist, lm = Math.log1p(f.max), L = LUTS[f.ci];
-      const ox = Math.round((f.idx % G + 0.5) * CELL - C / 2), oy = Math.round((Math.floor(f.idx / G) + 0.5) * CELL - C / 2);
+    for (const [d, f] of GARDEN ? pieces.map(p => [p, flowers[p.fi]]) : flowers.map(f => [f, f])) {
+      if (!d.hist || !f.q) continue;
+      const C = d.C, h = d.hist, lm = Math.log1p(d.max), L = LUTS[f.ci], ox = d.ox, oy = d.oy;
       for (let j = 0; j < C; j++) {
         const y = oy + j; if (y < 0 || y >= S) continue;
         for (let i = 0; i < C; i++) {
@@ -436,7 +524,7 @@
     for (; left < C - 1; left++) { a += col[left]; if (a > cut) break; }
     a = 0;
     for (; bottom > 0; bottom--) { a += row[bottom]; if (a > cut) break; }
-    return { left: (f.idx % G + 0.5) * CELL - C / 2 + left, bottom: (Math.floor(f.idx / G) + 0.5) * CELL - C / 2 + bottom };
+    return { left: f.ox + left, bottom: f.oy + bottom };
   }
   // シードの位置（キャンバスの px、x は左端、y はベースライン）。
   // 3 × 3 はビジュアルの左下。1 輪は花が小さく真ん中にあるので、花の左下（左へ 0.035S、下へ 0.035S）に寄せる
@@ -453,13 +541,21 @@
     el.style.transform = "translateY(-80%)"; el.style.fontSize = `${S * 0.013 / S * 100}cqw`;
   }
 
+  // 花 f を描く。3 × 3・1 輪はマスの中央に、花畑は f を使っている花すべてを描き直す
   function render(f) {
-    const id = ++f.job, q = f.q;
-    f.C = Math.round(CELL * layout.size);
-    f.hist = new Float32Array(f.C * f.C); f.max = 1; f.pts = 0; f.box = null;
+    if (GARDEN) { pieces.forEach(p => { if (p.fi === f.idx) enqueuePiece(p); }); return; }
+    draw(f, f.q, f.concept, Math.round(CELL * layout.size), (f.idx % G + 0.5) * CELL, (Math.floor(f.idx / G) + 0.5) * CELL, 0, 0, TOTAL,
+         done => { if (done && G === 1) { f.box = flowerBox(f); placeSeed(); } });
+  }
+  // d（ヒストグラムを持つもの）に、パラメータ q の花を、中心 (cx, cy)・一辺 C px・回転 angle・姿の変化 salt で描く。
+  // 描き終えたら end(true)、途中で打ち切られたら end(false)
+  function draw(d, q, concept, C, cx, cy, angle, salt, total, end) {
+    const id = ++d.job;
+    d.C = C; d.ox = Math.round(cx - C / 2); d.oy = Math.round(cy - C / 2);
+    d.hist = new Float32Array(C * C); d.max = 1; d.pts = 0; d.box = null;
     const pr = q && probe(q);
-    if (!pr) { f.hist = null; requestPaint(); return; }
-    const C = f.C, half = C / 2 - C / 90, inv = 1 / (pr.R * 1.02), h = f.hist;
+    if (!pr) { d.hist = null; requestPaint(); end?.(false); return; }
+    const f = d, half = C / 2 - C / 90, inv = 1 / (pr.R * 1.02), h = d.hist;
     // 中心の穴の半径（内径）と、半径の累積分布（eq の層で使う）を短い軌道で測る
     // align の花は、花びらの輪郭をアトラクタの張り出す向きに合わせるため、Σ r²·e^{inθ} の偏角も測る
     let x = pr.x, y = pr.y, rmin = Infinity, ex = 0, ey = 0;
@@ -467,7 +563,7 @@
     for (let i = 0; i < 30000; i++) {
       step(q, x, y); x = NX; y = NY; const r = x * x + y * y; if (r < rmin) rmin = r;
       cdf[Math.min(NB - 1, Math.sqrt(r) * inv * NB | 0) + 1]++;
-      if (f.concept.align && r > 0) {
+      if (concept.align && r > 0) {
         const th = Math.atan2(y, x) * q.n; ex += r * Math.cos(th); ey += r * Math.sin(th);
       }
     }
@@ -475,10 +571,12 @@
     for (let i = 0; i <= NB; i++) cdf[i] = Math.sqrt(cdf[i] / cdf[NB]);
     const r0 = Math.min(0.9, Math.sqrt(rmin) * inv * 0.94), k0 = 1 / (1 - r0);
     x = pr.x; y = pr.y;
-    const V = form(q, f.concept, layout.vary), sz = V.size * half;
-    if (f.concept.align) V.phase = Math.atan2(ey, ex) / q.n;
-    const L = f.concept.layers(q, V).map(l => {
+    const V = form(q, concept, layout.vary, salt), sz = V.size * half;
+    if (concept.align) V.phase = Math.atan2(ey, ex) / q.n;
+    const ca = Math.cos(angle), sa = Math.sin(angle);
+    const L = concept.layers(q, V).map(l => {
       l = { s: 1, rot: 0, dx: 0, dy: 0, warp: 1, dens: 1, sy: 1, upper: false, eq: false, mod: false, ...l };
+      if (angle) l = { ...l, rot: l.rot + angle, dx: l.dx * ca - l.dy * sa, dy: l.dx * sa + l.dy * ca };   // 花ごと回す
       return { ...l, cs: Math.cos(l.rot) * l.s * sz, sn: Math.sin(l.rot) * l.s * sz, mod: l.mod && (V.a > 0 || V.tw !== 0),
                ox: C / 2 + l.dx * sz, oy: C / 2 - l.dy * sz, w: l.s * l.s * l.dens };
     });
@@ -491,7 +589,7 @@
     let n = 0;
     const CHUNK = 120000;
     (function chunk() {
-      if (id !== f.job) return;
+      if (id !== f.job) { end?.(false); return; }
       for (let i = 0; i < CHUNK; i++, n++) {
         step(q, x, y); x = NX; y = NY;
         let hs = Math.imul(n ^ n >>> 16, 0x45D9F3B); hs = Math.imul(hs ^ hs >>> 16, 0x45D9F3B);
@@ -516,19 +614,19 @@
       }
       f.pts += CHUNK;
       requestPaint();
-      if (f.pts < TOTAL) requestAnimationFrame(chunk);
-      else if (G === 1) { f.box = flowerBox(f); placeSeed(); }
+      if (f.pts < total) requestAnimationFrame(chunk);
+      else end?.(true);
     })();
   }
 
   // 条件を満たすパラメータを探して差し替える（gen を進めると古い探索は破棄される）
   async function roll(f, gen) {
     const my = ++f.gen;
-    f.busy.textContent = "探索中…"; f.busy.hidden = false;
+    f.busy.textContent = "探索中…"; f.busy.hidden = false; updateBusy();
     const q = await search(gen, f.concept, () => my !== f.gen);
     if (my !== f.gen) return;
     if (!q) return;                               // search は必ず候補を返す（ここに来るのは打ち切られたときだけ）
-    f.busy.hidden = true;
+    f.busy.hidden = true; updateBusy();
     f.q = q; render(f); save();
   }
 
@@ -553,9 +651,10 @@
     seed = s; edited = false;
     const perm = order(seed);
     flowers.forEach(f => {
-      if (f.ci !== perm[f.idx]) { f.job++; f.q = null; f.hist = null; }
+      if (f.ci !== perm[f.idx]) { clearFlower(f); f.q = null; }
       setConcept(f, perm[f.idx]);
     });
+    if (GARDEN) relayout();
     requestPaint();
     if ($("rollColor").checked) { Object.assign(color, randomColor(seedRng(seed, 9))); syncColor(); recolor(); }
     showSeed(); save();
@@ -599,7 +698,8 @@
   slider($("layoutSliders"), "大きさ", 0.6, 1.5, 0.01, 2, () => layout.size, v => {
     layout.size = v;
     clearTimeout(layoutTimer);
-    layoutTimer = setTimeout(() => { flowers.forEach(f => f.q && render(f)); save(); }, 80);
+    // 花畑は大きさで並べ方が変わるので並べ直す
+    layoutTimer = setTimeout(() => { if (GARDEN) relayout(); flowers.forEach(f => f.q && render(f)); save(); }, GARDEN ? 250 : 80);
   })();
   // 姿の変化の強さ（0 で花ごとの既定の姿、1 で標準、1.5 まで強められる）
   slider($("layoutSliders"), "変化", 0, 1.5, 0.01, 2, () => layout.vary, v => {
@@ -609,18 +709,31 @@
   })();
 
   let sel = null, flashTimer = null;
+  // 選択の目印。花畑では、選んだ花と同じパラメータの花すべて
+  const marksOf = f => GARDEN ? pieces.filter(p => p.fi === f.idx).map(p => p.mark) : [f.mark];
   function select(f, flash = false) {
-    if (sel) sel.mark.classList.remove("flash");
+    if (sel) marksOf(sel).forEach(m => m.classList.remove("flash"));
     sel = f; save();
-    if (flash) { sel.mark.classList.add("flash"); clearTimeout(flashTimer); flashTimer = setTimeout(() => f.mark.classList.remove("flash"), 900); }
+    if (flash) {
+      const ms = marksOf(f);
+      ms.forEach(m => m.classList.add("flash"));
+      clearTimeout(flashTimer); flashTimer = setTimeout(() => ms.forEach(m => m.classList.remove("flash")), 900);
+    }
   }
   wrap.addEventListener("click", e => {
     const r = wrap.getBoundingClientRect();
+    if (GARDEN) {
+      // クリックした位置の花（重なっていれば小さい方）
+      const x = (e.clientX - r.left) / r.width * S, y = (e.clientY - r.top) / r.height * S;
+      const hit = pieces.filter(p => Math.hypot(p.x - x, p.y - y) < p.r * 0.85).sort((a, b) => a.r - b.r)[0];
+      if (hit) select(flowers[hit.fi], true);
+      return;
+    }
     const i = clip(Math.floor((e.clientX - r.left) / r.width * G), 0, G - 1), j = clip(Math.floor((e.clientY - r.top) / r.height * G), 0, G - 1);
     select(flowers[j * G + i], true);
   });
   wrap.addEventListener("keydown", e => {
-    if (!sel) return;
+    if (!sel || GARDEN) return;
     const d = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -G, ArrowDown: G }[e.key];
     if (d === undefined) return;
     e.preventDefault();
@@ -693,7 +806,7 @@
     const base = sel.q, c = sel.concept, list = G === 1 ? [sel] : flowers.filter(f => f !== sel);
     const base0 = newSeed();
     markEdited();
-    list.forEach(f => { f.job++; f.hist = null; setConcept(f, sel.ci); });
+    list.forEach(f => { clearFlower(f); setConcept(f, sel.ci); });
     requestPaint();
     rollMany(list, f => {
       const r = seedRng(base0, f.idx), sc = 0.5 + 1.5 * list.indexOf(f) / Math.max(1, list.length - 1);
@@ -795,7 +908,7 @@
   // ファイル名はシード（1 輪は _1x1、縦長は _1320x2868 / _1440x3200、編集済みは _edited を付ける）
   function fileName(suffix) {
     const base = seed !== null ? pad12(seed) : "symbea_flower";
-    return `${base}${edited ? "_edited" : ""}${G === 1 ? "_1x1" : ""}${suffix}.png`;
+    return `${base}${edited ? "_edited" : ""}${GARDEN ? "_garden" : G === 1 ? "_1x1" : ""}${suffix}.png`;
   }
   function savePNG(out, name) {
     return new Promise(done => out.toBlob(async png => {
@@ -869,7 +982,7 @@
   }
   select(flowers[hasSaved ? clip(saved.sel | 0, 0, N - 1) : N >> 1]);
   if (urlSeed !== null && !(urlSeed === seed && !edited)) generate(urlSeed);
-  else if (hasSaved && flowers.every(f => f.q)) { showSeed(); flowers.forEach(render); }
+  else if (hasSaved && flowers.every(f => f.q)) { showSeed(); if (GARDEN) relayout(); flowers.forEach(render); }
   else generate(seed !== null && !edited ? seed : newSeed());
   requestPaint();
 })();

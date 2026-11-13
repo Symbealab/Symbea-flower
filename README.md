@@ -9,10 +9,24 @@
 |---|---|---|
 | 3 × 3 | https://symbealab.github.io/Symbea-flower/ | 9 種の花を 3 × 3 に配置（`docs/index.html`） |
 | 1 輪 | https://symbealab.github.io/Symbea-flower/single.html | 花を 1 輪だけ探索。花の種類もシードでランダム（`docs/single.html`） |
+| 花畑 | https://symbealab.github.io/Symbea-flower/garden.html | 9 種の花を大・中・小の大きさでランダムに画面いっぱいに並べる（`docs/garden.html`） |
 
-- 2 つのページは同じ `docs/js/symbea.js` と `docs/css/symbea.css` を使い、`<body data-grid="3|1">` で切り替える
+- 3 つのページは同じ `docs/js/symbea.js` と `docs/css/symbea.css` を使い、`<body data-grid="3|1|garden">` で切り替える
 - 1 輪の花は、同じシードの 3 × 3 の左上と同じ花（種類・パラメータ）。保存状態（localStorage）はページごとに別
 - GitHub Pages：main ブランチの `/docs` を公開
+
+## 花畑（garden.html）
+
+[Flower Garden](https://symbealab.github.io/Generative-flower-Order-Chaos/garden.html) と同じ並べ方で、同じシードの 3 × 3 と同じ 9 つの花を画面いっぱいに並べる。
+
+- 大きさの基準 m = ビジュアルの一辺 × 0.7 × 「大きさ」。直径は 大 0.44–0.56 m、中 0.27–0.35 m、小 0.13–0.20 m
+- 大を (一辺 / m)² × 0.9〜1.4 輪、中を (一辺 / m)² × 4.5 輪、小を 120 輪、最後に隙間へ中 8・小 60 輪を、ほかの花と「半径の和 × 0.86」より近づかない場所にランダムに置く（各 200〜300 回まで試す。端からは半径の 25% まではみ出してよい。上限 110 輪）
+- 大きい順に先頭の 9 輪は 3 × 3 の 9 つの花そのもの（一番大きい花は 1 輪のページと同じ花）、残りは 9 つからランダムに選ぶ
+- 1 輪ずつ回転と姿の変化（花びらの輪郭・ねじれ・層の構成）を変える。パラメータ（軌道）は 9 つの花と同じなので、新しい探索は 9 回だけ
+- 配置・花の割り当て・回転・姿の変化はシードの系列 12 で決まる（同じシード・同じ大きさなら同じ花畑）
+- 花をクリックすると、その花と同じパラメータの花すべてが選ばれる。変奏はほかの 8 つを選んだ花の変奏で埋める
+- 描くのは大きい花から 4 輪ずつ。点の数は花の面積に比例（3 × 3 と同じ密度、最小 40 万点）
+- ファイル名はシードに `_garden` を付ける。パターン壁紙は 3 × 3 のみ
 
 ## 画像の保存
 
