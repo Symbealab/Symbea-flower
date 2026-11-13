@@ -48,11 +48,12 @@
       <button id="saveBoth" hidden>両サイズを保存（縦長 2 枚）</button>
 
       <h4>色彩</h4>
+      <select id="colorSet" aria-label="色のセット"></select>
       <div class="seg" role="radiogroup" aria-label="色の割り当て" hidden>
         <label><input type="radio" name="cmode" value="same"> 9 つ同色</label>
         <label><input type="radio" name="cmode" value="each"> 9 つ別色</label>
       </div>
-      <div class="colors" id="sameColors"><label>花の色<input type="color" id="base"></label></div>
+      <div class="colors" id="sameColors"><label>花の色<input type="color" id="base"></label><label>深い色<input type="color" id="deep"></label></div>
       <div class="grid9" id="eachColors"></div>
       <div class="colors"><label>背景<input type="color" id="bg"></label></div>
       <label class="check"><input type="checkbox" id="bgClear"> 背景を透明にする（PNG も透明で保存）</label>

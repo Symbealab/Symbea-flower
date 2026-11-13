@@ -316,7 +316,33 @@
   const lumOf = c => (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) / 255;
   const SKY = "#4fb0e3";
   const SKY9 = ["#4fb0e3", "#6cc4ec", "#3d97d6", "#58bcd9", "#7fb6ee", "#3a86c8", "#63c7e3", "#4b9fe6", "#8ccbef"];
-  const COLOR_DEFAULT = { mode: "same", base: SKY, each: SKY9, bg: "#ffffff", transparent: false, depth: 0.55, gamma: 1.19, exposure: 1.5 };
+  // deep / eachDeep：深い色（ランプの終わり）。null なら花の色と「芯の濃さ」から決める
+  const COLOR_DEFAULT = { mode: "same", base: SKY, each: SKY9, bg: "#ffffff", transparent: false, depth: 0.55, gamma: 1.19, exposure: 1.5,
+                          deep: null, eachDeep: Array(9).fill(null), set: "0" };
+  // 色のセット：[名前, 背景, [花の色, 深い色] の組]。組が 1 つなら同色、複数なら花の種類ごとに順に割り当てる（別色）。
+  // Flower Garden（https://symbealab.github.io/Generative-flower-Order-Chaos/garden.html）の色と同じ組み合わせ
+  const COLOR_SETS = [
+    ["スカイブルー（基本）", "#ffffff", [[SKY, null]]],
+    ["紅と藍", "#f6efe8", [["#e0507f", "#1c1757"]]],
+    ["夜光", "#05060b", [["#1f6bff", "#c8f6ff"]]],
+    ["金糸", "#0c0907", [["#9c561a", "#ffe3a3"]]],
+    ["夜桜", "#0b0509", [["#c2306e", "#ffd6ea"]]],
+    ["翡翠の夜", "#03090a", [["#138a72", "#c9ffe9"]]],
+    ["菫", "#07050f", [["#6b3cff", "#e6dcff"]]],
+    ["炎", "#0a0503", [["#b8320c", "#ffd08a"]]],
+    ["色とりどり（夜）", "#05060b", [["#1f6bff", "#c8f6ff"], ["#9c561a", "#ffe3a3"], ["#c2306e", "#ffd6ea"], ["#138a72", "#c9ffe9"], ["#6b3cff", "#e6dcff"]]],
+    ["墨流し", "#f3eee4", [["#7a7f8a", "#111318"]]],
+    ["藍染", "#eef2f3", [["#5b8fd0", "#0b1e4d"]]],
+    ["翡翠", "#f1f4ef", [["#4fbf9a", "#073b30"]]],
+    ["色とりどり（和紙）", "#f4efe6", [["#e0507f", "#1c1757"], ["#5b8fd0", "#0b1e4d"], ["#4fbf9a", "#073b30"], ["#d08a3a", "#3a1a05"], ["#7a7f8a", "#111318"]]],
+  ];
+  function applySet(i) {
+    const [, bg, inks] = COLOR_SETS[i];
+    Object.assign(color, { set: String(i), bg, transparent: false, depth: COLOR_DEFAULT.depth,
+                           mode: inks.length > 1 && G !== 1 ? "each" : "same", base: inks[0][0], deep: inks[0][1] });
+    if (i === 0) { color.each = [...SKY9]; color.eachDeep = Array(9).fill(null); }
+    else { color.each = Array.from({ length: 9 }, (_, k) => inks[k % inks.length][0]); color.eachDeep = Array.from({ length: 9 }, (_, k) => inks[k % inks.length][1]); }
+  }
   const COLOR_SLIDERS = [["depth", "芯の濃さ", 0, 0.9, 0.01, 2], ["gamma", "ガンマ", 0.3, 2, 0.01, 2],
                          ["exposure", "露出", 0.4, 3, 0.01, 2]];
 
@@ -336,11 +362,18 @@
   // 花の種類ごとのランプ（0〜1 の値。乗算用に 0 が背景側）。別色は花の種類に付く（並びが変わっても色は花についていく）
   const LUTS = Array.from({ length: 9 }, () => new Float32Array(256 * 3));
   const colorOf = i => color.mode === "each" ? color.each[i] : color.base;
-  function ramp(hex, light) {
-    const [h, s, l] = hex2hsl(hex);
-    const mid = hex2rgb(hex).map(v => v / 255);
-    const end = light ? hex2rgb(hsl2hex(h, Math.min(1, s * 1.05), l * (1 - color.depth))).map(v => v / 255)
-                      : hex2rgb(hsl2hex(h, s * 0.6, l + (1 - l) * color.depth)).map(v => v / 255);
+  const deepOf = i => color.mode === "each" ? color.eachDeep[i] : color.deep;
+  // 深い色の指定がなければ、花の色を「芯の濃さ」だけ暗く（暗い背景では明るく）する。
+  // 指定があれば、花の色から深い色へ「芯の濃さ」の割合（既定 0.55 でちょうど深い色）で寄せる
+  function endOf(hex, light, deep) {
+    const [h, s, l] = hex2hsl(hex), mid = hex2rgb(hex).map(v => v / 255);
+    if (deep) { const d = hex2rgb(deep).map(v => v / 255), t = color.depth / COLOR_DEFAULT.depth;
+                return mid.map((v, k) => clip(v + (d[k] - v) * t, 0, 1)); }
+    return light ? hex2rgb(hsl2hex(h, Math.min(1, s * 1.05), l * (1 - color.depth))).map(v => v / 255)
+                 : hex2rgb(hsl2hex(h, s * 0.6, l + (1 - l) * color.depth)).map(v => v / 255);
+  }
+  function ramp(hex, light, deep) {
+    const mid = hex2rgb(hex).map(v => v / 255), end = endOf(hex, light, deep);
     const start = light ? [1, 1, 1] : [0, 0, 0], M = 0.45;
     return t => t < M ? start.map((v, k) => v + (mid[k] - v) * (t / M))
                       : mid.map((v, k) => v + (end[k] - v) * ((t - M) / (1 - M)));
@@ -350,7 +383,7 @@
   function buildLUT() {
     const light = isLight();
     for (let i = 0; i < 9; i++) {
-      const f = ramp(colorOf(i), light), L = LUTS[i];
+      const f = ramp(colorOf(i), light, deepOf(i)), L = LUTS[i];
       for (let t = 0; t < 256; t++) { const c = f(t / 255); L[t * 3] = c[0]; L[t * 3 + 1] = c[1]; L[t * 3 + 2] = c[2]; }
     }
     const toCss = (L, t) => `rgb(${[0, 1, 2].map(k => Math.round(L[t * 3 + k] * 255)).join(",")})`;
@@ -367,6 +400,9 @@
   const saved = store.get(SKEY) || {};
   const color = { ...COLOR_DEFAULT, ...(saved.color || {}) };
   if (!Array.isArray(color.each) || color.each.length !== 9) color.each = [...SKY9];
+  if (!Array.isArray(color.eachDeep) || color.eachDeep.length !== 9) color.eachDeep = Array(9).fill(null);
+  if (saved.color && !("set" in saved.color)) color.set = "";     // セットがなかったころに保存した色はカスタム扱い
+  if (color.set !== "" && !COLOR_SETS[+color.set]) color.set = "";
   if (G === 1) color.mode = "same";          // 1 輪では同色だけ
   const layout = { size: GARDEN ? 1 : 0.92, vary: 1, ...(saved.layout || {}) };
   let seed = Number.isSafeInteger(saved.seed) && saved.seed >= 0 && saved.seed < SEED_SPACE ? saved.seed : null, edited = !!saved.edited;
@@ -656,7 +692,7 @@
     });
     if (GARDEN) relayout();
     requestPaint();
-    if ($("rollColor").checked) { Object.assign(color, randomColor(seedRng(seed, 9))); syncColor(); recolor(); }
+    if ($("rollColor").checked) randomize(seedRng(seed, 9));
     showSeed(); save();
     rollMany(flowers, f => { const rng = seedRng(seed, f.idx); return () => randomParams(rng, f.concept); });
   }
@@ -747,7 +783,7 @@
     lab.title = c.name;
     lab.append(Object.assign(document.createElement("span"), { textContent: c.name }));
     const inp = Object.assign(document.createElement("input"), { type: "color", id: `each${i}` });
-    inp.addEventListener("input", () => { color.each[i] = inp.value; recolor(); });
+    inp.addEventListener("input", () => { color.each[i] = inp.value; color.eachDeep[i] = null; custom(); recolor(); });
     lab.append(inp); $("eachColors").append(lab);
   });
   function recolor() {
@@ -757,20 +793,32 @@
   }
   const colorShow = COLOR_SLIDERS.map(([k, label, lo, hi, st, dg]) =>
     slider($("colorSliders"), label, lo, hi, st, dg, () => color[k], v => { color[k] = v; recolor(); }));
+  // 色のセットの選択肢（最後はカスタム）。色を手で変えるとカスタムになる
+  COLOR_SETS.forEach(([name], i) => $("colorSet").append(new Option(name, i)));
+  $("colorSet").append(new Option("カスタム", ""));
+  $("colorSet").addEventListener("change", e => {
+    if (e.target.value === "") { color.set = ""; save(); return; }
+    applySet(+e.target.value); syncColor(); recolor();
+  });
+  const custom = () => { color.set = ""; $("colorSet").value = ""; };
   function syncColor() {
     for (const r of document.querySelectorAll("input[name=cmode]")) r.checked = r.value === color.mode;
+    $("colorSet").value = color.set;
     $("base").value = color.base; $("bg").value = color.bg;
+    $("deep").value = color.deep || rgb2hex(endOf(color.base, isLight(), null).map(v => v * 255));
     $("bgClear").checked = color.transparent; $("bg").disabled = color.transparent;
     color.each.forEach((c, i) => { $(`each${i}`).value = c; });
     colorShow.forEach(f => f());
   }
   for (const r of document.querySelectorAll("input[name=cmode]"))
-    r.addEventListener("change", () => { if (r.checked) { color.mode = r.value; recolor(); } });
-  for (const k of ["base", "bg"]) $(k).addEventListener("input", e => { color[k] = e.target.value; recolor(); });
-  $("bgClear").addEventListener("change", e => { color.transparent = e.target.checked; $("bg").disabled = color.transparent; recolor(); });
-  $("randColor").addEventListener("click", () => { Object.assign(color, randomColor(freshRng())); syncColor(); recolor(); });
+    r.addEventListener("change", () => { if (r.checked) { color.mode = r.value; custom(); recolor(); } });
+  for (const k of ["base", "bg", "deep"]) $(k).addEventListener("input", e => { color[k] = e.target.value; custom(); recolor(); });
+  $("bgClear").addEventListener("change", e => { color.transparent = e.target.checked; $("bg").disabled = color.transparent; custom(); recolor(); });
+  // 抽選した色は深い色を指定しない（芯の濃さで決める）
+  const randomize = rng => { Object.assign(color, randomColor(rng), { deep: null, eachDeep: Array(9).fill(null), set: "" }); syncColor(); recolor(); };
+  $("randColor").addEventListener("click", () => randomize(freshRng()));
   $("resetColor").addEventListener("click", () => {
-    Object.assign(color, { ...COLOR_DEFAULT, mode: color.mode, each: [...SKY9] }); syncColor(); recolor();
+    Object.assign(color, { ...COLOR_DEFAULT, mode: color.mode, each: [...SKY9], eachDeep: Array(9).fill(null) }); syncColor(); recolor();
   });
 
   // 操作
