@@ -437,8 +437,10 @@
   const GSIZES = { L: [0.44, 0.56], M: [0.27, 0.35], S: [0.13, 0.20] };   // 直径（基準の長さ m に対する比）
   const GMAX = 110;                                                      // 描く量が多くなりすぎないよう上限
   let pieces = [];
-  function gardenLayout(s) {
-    const r = seedRng(s, 12), m = S * 0.7 * layout.size, out = [];
+  // W × H px に並べる。花の大きさの基準は幅（正方形のビジュアルと縦長の壁紙で、幅に対する花の大きさが同じ）。
+  // 面積が正方形の a 倍なら、隙間を埋める小・中の花の数と上限も a 倍にする（正方形では従来どおり）
+  function gardenLayout(s, W = S, H = S) {
+    const r = seedRng(s, 12), m = W * 0.7 * layout.size, a = H / W, out = [];
     const R = (a, b) => a + r() * (b - a);
     const fits = (x, y, rad) => out.every(o => Math.hypot(o.x - x, o.y - y) >= (o.r + rad) * 0.86);
     const place = (cls, count, attempts) => {
@@ -446,18 +448,18 @@
         for (let t = 0; t < attempts; t++) {
           const rad = R(...GSIZES[cls]) * m / 2;
           // 端からは半径の 25% まではみ出してよい（画面の縁まで花で埋める）
-          const x = R(rad * 0.75, S - rad * 0.75), y = R(rad * 0.75, S - rad * 0.75);
+          const x = R(rad * 0.75, W - rad * 0.75), y = R(rad * 0.75, H - rad * 0.75);
           if (fits(x, y, rad)) { out.push({ cls, x, y, r: rad }); break; }
         }
       }
     };
-    const k = S * S / (m * m);
+    const k = W * H / (m * m);
     place("L", Math.max(1, Math.round(k * (0.9 + r() * 0.5))), 300);
     place("M", Math.round(k * 4.5), 300);
-    place("S", 120, 300);
-    place("M", 8, 200); place("S", 60, 200);      // 残った隙間にもう一度、中 → 小の順で
+    place("S", Math.round(120 * a), 300);
+    place("M", Math.round(8 * a), 200); place("S", Math.round(60 * a), 200);      // 残った隙間にもう一度、中 → 小の順で
     out.sort((a, b) => b.r - a.r);
-    return out.slice(0, GMAX).map((o, i) => ({
+    return out.slice(0, Math.round(GMAX * a)).map((o, i) => ({
       ...o, fi: i < N ? i : Math.floor(r() * N), angle: r() * TAU, salt: i < N ? 0 : 1 + Math.floor(r() * 1e6),
       job: 0, hist: null, C: 0, max: 1, pts: 0, ox: 0, oy: 0, mark: null,
     }));
@@ -503,10 +505,13 @@
       const p = gq.shift(), f = flowers[p.fi];
       if (!pieces.includes(p) || !f.q) continue;
       gActive++;
-      const C = Math.round(p.r * 2.2);              // 花は円より少し小さく描かれるので、やや大きめにして隙間を埋める
-      draw(p, f.q, f.concept, C, p.x, p.y, p.angle, p.salt, Math.max(4e5, 2.5e6 * (C / 442) ** 2), () => { gActive--; pumpPieces(); });
+      const C = pieceSize(p);
+      draw(p, f.q, f.concept, C, p.x, p.y, p.angle, p.salt, pieceTotal(C), () => { gActive--; pumpPieces(); });
     }
   }
+  // 花は円より少し小さく描かれるので、やや大きめにして隙間を埋める。点の数は面積に比例（3 × 3 と同じ密度）
+  const pieceSize = p => Math.round(p.r * 2.2);
+  const pieceTotal = C => Math.max(4e5, 2.5e6 * (C / 442) ** 2);
   // 花 f（探索の単位）を描き直す。花畑では f を使っている花すべて
   function clearFlower(f) {
     f.job++; f.hist = null;
@@ -517,26 +522,30 @@
   let paintReq = 0;
   const requestPaint = () => { if (!paintReq) paintReq = requestAnimationFrame(() => { paintReq = 0; paint(); }); };
   function paint() {
+    compose(GARDEN ? pieces.map(p => [p, flowers[p.fi]]) : flowers.map(f => [f, f]), S, S, F, img.data);
+    wrap.style.background = color.bg; wrap.classList.toggle("clear", color.transparent);
+    $("seed").style.color = isLight() ? "rgba(0, 0, 0, .3)" : "rgba(255, 255, 255, .32)";
+    ctx.putImageData(img, 0, 0);
+  }
+  // [ヒストグラムを持つもの, 花] の組を W × H px に合成して、RGBA の d に書く（F は作業用の W × H × 3）
+  function compose(items, W, H, F, d) {
     const BG = hex2rgb(color.bg), light = isLight(), clear = color.transparent, g = color.gamma, ex = color.exposure;
     F.fill(light ? 1 : 0);
-    for (const [d, f] of GARDEN ? pieces.map(p => [p, flowers[p.fi]]) : flowers.map(f => [f, f])) {
-      if (!d.hist || !f.q) continue;
-      const C = d.C, h = d.hist, lm = Math.log1p(d.max), L = LUTS[f.ci], ox = d.ox, oy = d.oy;
+    for (const [it, f] of items) {
+      if (!it.hist || !f.q) continue;
+      const C = it.C, h = it.hist, lm = Math.log1p(it.max), L = LUTS[f.ci], ox = it.ox, oy = it.oy;
       for (let j = 0; j < C; j++) {
-        const y = oy + j; if (y < 0 || y >= S) continue;
+        const y = oy + j; if (y < 0 || y >= H) continue;
         for (let i = 0; i < C; i++) {
           const v0 = h[j * C + i]; if (!v0) continue;
-          const x = ox + i; if (x < 0 || x >= S) continue;
-          const t = (Math.min(1, Math.pow(Math.log1p(v0) / lm, g) * ex) * 255) | 0, k = (y * S + x) * 3;
+          const x = ox + i; if (x < 0 || x >= W) continue;
+          const t = (Math.min(1, Math.pow(Math.log1p(v0) / lm, g) * ex) * 255) | 0, k = (y * W + x) * 3;
           if (light) { F[k] *= L[t * 3]; F[k + 1] *= L[t * 3 + 1]; F[k + 2] *= L[t * 3 + 2]; }   // 乗算
           else for (let c = 0; c < 3; c++) F[k + c] = 1 - (1 - F[k + c]) * (1 - L[t * 3 + c]);   // スクリーン
         }
       }
     }
-    wrap.style.background = color.bg; wrap.classList.toggle("clear", clear);
-    $("seed").style.color = light ? "rgba(0, 0, 0, .3)" : "rgba(255, 255, 255, .32)";
-    const d = img.data;
-    for (let p = 0, k = 0; p < S * S; p++, k += 3) {
+    for (let p = 0, k = 0; p < W * H; p++, k += 3) {
       if (clear) {   // 白に重ねたときに乗算の結果と同じ色になるアルファと色
         const al = 1 - Math.min(F[k], F[k + 1], F[k + 2]);
         for (let c = 0; c < 3; c++) d[p * 4 + c] = al > 0 ? 255 * (F[k + c] - 1 + al) / al : 0;
@@ -546,7 +555,6 @@
       for (let c = 0; c < 3; c++) d[p * 4 + c] = light ? BG[c] * F[k + c] : 255 - (255 - BG[c]) * (1 - F[k + c]);
       d[p * 4 + 3] = 255;
     }
-    ctx.putImageData(img, 0, 0);
   }
 
   // 描き終えた花の外形（左端と下端、キャンバスの px）。点のごく一部（0.1%）のはみ出しは無視する
@@ -587,10 +595,23 @@
   // 描き終えたら end(true)、途中で打ち切られたら end(false)
   function draw(d, q, concept, C, cx, cy, angle, salt, total, end) {
     const id = ++d.job;
+    const run = plotter(d, q, concept, C, cx, cy, angle, salt);
+    if (!run) { requestPaint(); end?.(false); return; }
+    const CHUNK = 120000;
+    (function chunk() {
+      if (id !== d.job) { end?.(false); return; }
+      run(CHUNK);
+      requestPaint();
+      if (d.pts < total) requestAnimationFrame(chunk);
+      else end?.(true);
+    })();
+  }
+  // d にヒストグラム（一辺 C px、左上 (ox, oy)）を用意し、点を count 個ずつ打つ関数 run(count) を返す。発散する花は null
+  function plotter(d, q, concept, C, cx, cy, angle, salt) {
     d.C = C; d.ox = Math.round(cx - C / 2); d.oy = Math.round(cy - C / 2);
     d.hist = new Float32Array(C * C); d.max = 1; d.pts = 0; d.box = null;
     const pr = q && probe(q);
-    if (!pr) { d.hist = null; requestPaint(); end?.(false); return; }
+    if (!pr) { d.hist = null; return null; }
     const f = d, half = C / 2 - C / 90, inv = 1 / (pr.R * 1.02), h = d.hist;
     // 中心の穴の半径（内径）と、半径の累積分布（eq の層で使う）を短い軌道で測る
     // align の花は、花びらの輪郭をアトラクタの張り出す向きに合わせるため、Σ r²·e^{inθ} の偏角も測る
@@ -623,9 +644,7 @@
     L.forEach((l, j) => { acc += l.w / wsum * NS; while (k < Math.round(acc)) slots[k++] = j; });
     while (k < NS) slots[k++] = L.length - 1;
     let n = 0;
-    const CHUNK = 120000;
-    (function chunk() {
-      if (id !== f.job) { end?.(false); return; }
+    return CHUNK => {
       for (let i = 0; i < CHUNK; i++, n++) {
         step(q, x, y); x = NX; y = NY;
         let hs = Math.imul(n ^ n >>> 16, 0x45D9F3B); hs = Math.imul(hs ^ hs >>> 16, 0x45D9F3B);
@@ -649,10 +668,7 @@
         if (px >= 0 && px < C && py >= 0 && py < C) { const c = ++h[py * C + px]; if (c > f.max) f.max = c; }
       }
       f.pts += CHUNK;
-      requestPaint();
-      if (f.pts < total) requestAnimationFrame(chunk);
-      else end?.(true);
-    })();
+    };
   }
 
   // 条件を満たすパラメータを探して差し替える（gen を進めると古い探索は破棄される）
@@ -900,6 +916,31 @@
     drawSeedLabel(c, V, V, 0.013, left + p.x * k, top + p.y * k);
     return out;
   }
+  // 花畑の壁紙 W × H px：正方形を縮めて置くのではなく、壁紙の全体に花畑を並べ直して、その大きさで描く。
+  // 並べ方は同じシード（系列 12）で W × H に並べたもの。シードは左下に、安全領域に収まるよう左端・下端から幅の (1 − SAFE) / 2 内側に入れる。
+  // 描くのに数秒かかるので、少しずつ進めて progress(0〜1) で進み具合を知らせる
+  // 点の数は画面の 4 割（壁紙は面積が 2 倍ほどあるので、全部を画面と同じ密度で描くと時間がかかりすぎる。見た目はほぼ変わらない）
+  const WP_DENS = 0.4;
+  async function gardenWallpaper(W, H, progress) {
+    const list = gardenLayout(seed ?? 0, W, H).map(p => [p, flowers[p.fi]]).filter(([, f]) => f.q);
+    const totals = list.map(([p]) => pieceTotal(pieceSize(p)) * WP_DENS), all = totals.reduce((a, b) => a + b, 0);
+    let done = 0, last = performance.now();
+    for (let i = 0; i < list.length; i++) {
+      const [p, f] = list[i], run = plotter(p, f.q, f.concept, pieceSize(p), p.x, p.y, p.angle, p.salt);
+      if (!run) { done += totals[i]; continue; }
+      while (p.pts < totals[i]) {
+        run(120000); done += 120000;
+        if (performance.now() - last > 30) { progress?.(Math.min(1, done / all)); await yieldUI(); last = performance.now(); }
+      }
+    }
+    const out = Object.assign(document.createElement("canvas"), { width: W, height: H }), c = out.getContext("2d");
+    const im = c.createImageData(W, H);
+    compose(list, W, H, new Float32Array(W * H * 3), im.data);
+    c.putImageData(im, 0, 0);
+    const m = W * (1 - SAFE) / 2;
+    drawSeedLabel(c, W, W, 0.013, m, H - m);
+    return out;
+  }
   // PNG の tEXt チャンク（Latin-1 のみ）にシードを書き込む（IHDR の直後に挿入）
   const CRC = new Int32Array(256).map((_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xEDB88320 ^ n >>> 1 : n >>> 1; return n; });
   function pngText(buf, entries) {
@@ -984,7 +1025,21 @@
     }, "image/png"));
   }
   $("saveAll").addEventListener("click", () => savePNG(withSeedLabel(), fileName("")));
-  const saveTall = ({ w, h }) => savePNG(wallpaper(w, h), fileName(`_${w}x${h}`));
+  // 花畑は壁紙の全体に並べ直して描く（数秒かかるので、作っている間はボタンに進み具合を出し、保存のボタンを押せなくする）
+  let making = false;
+  async function saveTall({ w, h }) {
+    if (!GARDEN) return savePNG(wallpaper(w, h), fileName(`_${w}x${h}`));
+    if (making) return;
+    making = true;
+    const btns = ["saveAll", "saveTall", "saveBoth"].map($).filter(Boolean), label = $("saveTall").textContent;
+    btns.forEach(b => { b.disabled = true; });
+    try {
+      const out = await gardenWallpaper(w, h, t => { $("saveTall").textContent = `${w} × ${h} を作成中… ${Math.round(t * 100)}%`; });
+      await savePNG(out, fileName(`_${w}x${h}`));
+    } finally {
+      making = false; btns.forEach(b => { b.disabled = false; }); $("saveTall").textContent = label;
+    }
+  }
   const savePattern = ({ w, h }) => savePNG(pattern(w, h), fileName(`_pattern_${w}x${h}`));
   // サイズの切り替え：ボタン名を選んだサイズに合わせる
   function syncSize() {
