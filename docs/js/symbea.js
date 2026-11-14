@@ -404,14 +404,25 @@
   if (saved.color && !("set" in saved.color)) color.set = "";     // セットがなかったころに保存した色はカスタム扱い
   if (color.set !== "" && !COLOR_SETS[+color.set]) color.set = "";
   if (G === 1) color.mode = "same";          // 1 輪では同色だけ
-  const layout = { size: GARDEN ? 1 : 0.92, vary: 1, motion: "static", ...(saved.layout || {}) };
+  const layout = { size: GARDEN ? 1 : 0.92, vary: 1, motion: "dynamic", ...(saved.layout || {}) };
+  // 既定は動的。自分で「動き」を選んでいなければ（静的が既定だったころの保存も）動的にする
+  if (!layout.motionChosen) layout.motion = "dynamic";
   let seed = Number.isSafeInteger(saved.seed) && saved.seed >= 0 && saved.seed < SEED_SPACE ? saved.seed : null, edited = !!saved.edited;
 
   // 点の数は花の面積に比例させる（1 輪は 3 × 3 の 1 マスより 9 倍大きいので、上限 6 倍まで増やす）
-  const canvas = $("cv"), S = canvas.width, CELL = S / G, TOTAL = 2.5e6 * Math.min(6, (CELL / 480) ** 2);
-  const ctx = canvas.getContext("2d"), img = ctx.createImageData(S, S);
-  const F = new Float32Array(S * S * 3);
-  const wrap = $("wrap");
+  // 花畑のキャンバスは壁紙と同じ大きさ（1320 × 2868 / 1440 × 3200）。S は幅、CH は高さ（3 × 3・1 輪は正方形で CH = S）
+  const WP_SIZES = { iphone: { w: 1320, h: 2868, label: "iPhone" }, android: { w: 1440, h: 3200, label: "Android" } };
+  const WKEY = "symbea.flower.wpsize";
+  let wpSize = WP_SIZES[store.get(WKEY)] ? store.get(WKEY) : "iphone";
+  const canvas = $("cv"), wrap = $("wrap"), ctx = canvas.getContext("2d");
+  let S = canvas.width, CH = canvas.height, img = null, F = null;
+  function sizeCanvas(w, h) {
+    canvas.width = S = w; canvas.height = CH = h;
+    img = ctx.createImageData(S, CH); F = new Float32Array(S * CH * 3);
+    wrap.style.setProperty("--ar", `${w} / ${h}`); wrap.style.setProperty("--arw", `${w / h}`);
+  }
+  if (GARDEN) { wrap.classList.add("tall"); sizeCanvas(WP_SIZES[wpSize].w, WP_SIZES[wpSize].h); } else sizeCanvas(S, S);
+  const CELL = S / G, TOTAL = 2.5e6 * Math.min(6, (CELL / 480) ** 2);
   const flowers = [];
 
   for (let i = 0; i < N; i++) {
@@ -439,7 +450,7 @@
   let pieces = [];
   // W × H px に並べる。花の大きさの基準は幅（正方形のビジュアルと縦長の壁紙で、幅に対する花の大きさが同じ）。
   // 面積が正方形の a 倍なら、隙間を埋める小・中の花の数と上限も a 倍にする（正方形では従来どおり）
-  function gardenLayout(s, W = S, H = S) {
+  function gardenLayout(s, W = S, H = CH) {
     const r = seedRng(s, 12), m = W * 0.7 * layout.size, a = H / W, out = [];
     const R = (a, b) => a + r() * (b - a);
     const fits = (x, y, rad) => out.every(o => Math.hypot(o.x - x, o.y - y) >= (o.r + rad) * 0.86);
@@ -473,8 +484,8 @@
     marks.replaceChildren(gBusy.parentNode);
     for (const p of pieces) {
       p.mark = Object.assign(document.createElement("div"), { className: "mark" });
-      Object.assign(p.mark.style, { left: `${(p.x - p.r) / S * 100}%`, top: `${(p.y - p.r) / S * 100}%`,
-                                    width: `${p.r * 2 / S * 100}%`, height: `${p.r * 2 / S * 100}%`, borderRadius: "50%" });
+      Object.assign(p.mark.style, { left: `${(p.x - p.r) / S * 100}%`, top: `${(p.y - p.r) / CH * 100}%`,
+                                    width: `${p.r * 2 / S * 100}%`, height: `${p.r * 2 / CH * 100}%`, borderRadius: "50%" });
       marks.append(p.mark);
     }
     requestPaint();
@@ -511,7 +522,8 @@
   }
   // 花は円より少し小さく描かれるので、やや大きめにして隙間を埋める。点の数は面積に比例（3 × 3 と同じ密度）
   const pieceSize = p => Math.round(p.r * 2.2);
-  const pieceTotal = C => Math.max(4e5, 2.5e6 * (C / 442) ** 2);
+  // 花畑は壁紙の大きさで正方形の 2 倍ほどの面積を描くので、密度は 3 × 3 の半分（見た目はほぼ同じ）
+  const pieceTotal = C => Math.max(2e5, 1.25e6 * (C / 442) ** 2);
   // 花 f（探索の単位）を描き直す。花畑では f を使っている花すべて
   function clearFlower(f) {
     f.job++; f.hist = null;
@@ -526,14 +538,14 @@
     wrap.style.background = color.bg; wrap.classList.toggle("clear", color.transparent);
     $("seed").style.color = isLight() ? "rgba(0, 0, 0, .3)" : "rgba(255, 255, 255, .32)";
     if (motionOn()) return;                       // 動的なときは毎フレーム animate が描く
-    compose(drawables(), S, S, F, img.data);
+    compose(drawables(), S, CH, F, img.data);
     ctx.putImageData(img, 0, 0);
   }
   // 保存用の静止画（動的なときも、回転・点灯していない静的な姿を合成する）
   function stillCanvas() {
     if (!motionOn()) return canvas;
-    compose(drawables(), S, S, F, img.data);
-    const out = Object.assign(document.createElement("canvas"), { width: S, height: S });
+    compose(drawables(), S, CH, F, img.data);
+    const out = Object.assign(document.createElement("canvas"), { width: S, height: CH });
     out.getContext("2d").putImageData(img, 0, 0);
     return out;
   }
@@ -579,7 +591,7 @@
     const t = ms / 1000, light = isLight(), op = light ? "multiply" : "screen";
     ctx.save();
     ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
-    if (color.transparent) ctx.clearRect(0, 0, S, S); else { ctx.fillStyle = color.bg; ctx.fillRect(0, 0, S, S); }
+    if (color.transparent) ctx.clearRect(0, 0, S, CH); else { ctx.fillStyle = color.bg; ctx.fillRect(0, 0, S, CH); }
     ctx.globalCompositeOperation = op;
     drawables().forEach(([d, f], i) => {
       if (!d.hist || !f.q) return;
@@ -644,7 +656,9 @@
   }
   // シードの位置（キャンバスの px、x は左端、y はベースライン）。
   // 3 × 3 はビジュアルの左下。1 輪は花が小さく真ん中にあるので、花の左下（左へ 0.035S、下へ 0.035S）に寄せる
+  // 花畑は壁紙と同じく、安全領域の内側の左下
   function seedPos() {
+    if (GARDEN) { const m = S * (1 - SAFE) / 2; return { x: m, y: CH - m }; }
     const f = flowers[0], dflt = { x: S * 0.012, y: S * 0.99 };
     if (G !== 1 || !f.box) return dflt;
     return { x: clip(f.box.left - S * 0.035, dflt.x, S * 0.5), y: clip(f.box.bottom + S * 0.035, S * 0.5, dflt.y) };
@@ -652,8 +666,8 @@
   // 画面のシード表示も同じ位置に置く（画像と同じ見え方にする）
   function placeSeed() {
     const el = $("seed"), p = seedPos();
-    if (G !== 1) return;
-    el.style.left = `${p.x / S * 100}%`; el.style.top = `${p.y / S * 100}%`; el.style.bottom = "auto";
+    if (G !== 1 && !GARDEN) return;
+    el.style.left = `${p.x / S * 100}%`; el.style.top = `${p.y / CH * 100}%`; el.style.bottom = "auto";
     el.style.transform = "translateY(-80%)"; el.style.fontSize = `${S * 0.013 / S * 100}cqw`;
   }
 
@@ -849,7 +863,7 @@
     const r = wrap.getBoundingClientRect();
     if (GARDEN) {
       // クリックした位置の花（重なっていれば小さい方）
-      const x = (e.clientX - r.left) / r.width * S, y = (e.clientY - r.top) / r.height * S;
+      const x = (e.clientX - r.left) / r.width * S, y = (e.clientY - r.top) / r.height * CH;
       const hit = pieces.filter(p => Math.hypot(p.x - x, p.y - y) < p.r * 0.85).sort((a, b) => a.r - b.r)[0];
       if (hit) select(flowers[hit.fi], true);
       return;
@@ -964,16 +978,13 @@
     c.fillText(label, Math.round(x), Math.round(y));
   }
   function withSeedLabel() {
-    const out = Object.assign(document.createElement("canvas"), { width: S, height: S }), c = out.getContext("2d");
+    const out = Object.assign(document.createElement("canvas"), { width: S, height: CH }), c = out.getContext("2d");
     c.drawImage(stillCanvas(), 0, 0);
     const p = seedPos();
     drawSeedLabel(c, S, S, 0.013, p.x, p.y);
     return out;
   }
-  // 壁紙のサイズ（iPhone / Android）。選んだサイズは両ページ共通で覚えておく
-  const WP_SIZES = { iphone: { w: 1320, h: 2868, label: "iPhone" }, android: { w: 1440, h: 3200, label: "Android" } };
-  const WKEY = "symbea.flower.wpsize";
-  let wpSize = WP_SIZES[store.get(WKEY)] ? store.get(WKEY) : "iphone";
+  // 壁紙のサイズ（iPhone / Android、WP_SIZES はキャンバスの用意のところ）。選んだサイズは全ページ共通で覚えておく
   // 安全領域：スマホは画像を画面いっぱいに拡大してはみ出しを切るので（21:9 では左右、視差効果では周囲が切れる）、
   // ビジュアルは画像の幅の SAFE 倍に縮めて中央に置き、パターンのシードは幅の (1 − SAFE) / 2 以上内側に入れる
   const SAFE = 0.85;
@@ -992,11 +1003,9 @@
   // 花畑の壁紙 W × H px：正方形を縮めて置くのではなく、壁紙の全体に花畑を並べ直して、その大きさで描く。
   // 並べ方は同じシード（系列 12）で W × H に並べたもの。シードは左下に、安全領域に収まるよう左端・下端から幅の (1 − SAFE) / 2 内側に入れる。
   // 描くのに数秒かかるので、少しずつ進めて progress(0〜1) で進み具合を知らせる
-  // 点の数は画面の 4 割（壁紙は面積が 2 倍ほどあるので、全部を画面と同じ密度で描くと時間がかかりすぎる。見た目はほぼ変わらない）
-  const WP_DENS = 0.4;
   async function gardenWallpaper(W, H, progress) {
     const list = gardenLayout(seed ?? 0, W, H).map(p => [p, flowers[p.fi]]).filter(([, f]) => f.q);
-    const totals = list.map(([p]) => pieceTotal(pieceSize(p)) * WP_DENS), all = totals.reduce((a, b) => a + b, 0);
+    const totals = list.map(([p]) => pieceTotal(pieceSize(p))), all = totals.reduce((a, b) => a + b, 0);
     let done = 0, last = performance.now();
     for (let i = 0; i < list.length; i++) {
       const [p, f] = list[i], run = plotter(p, f.q, f.concept, pieceSize(p), p.x, p.y, p.angle, p.salt);
@@ -1102,6 +1111,7 @@
   let making = false;
   async function saveTall({ w, h }) {
     if (!GARDEN) return savePNG(wallpaper(w, h), fileName(`_${w}x${h}`));
+    if (w === S && h === CH) return savePNG(withSeedLabel(), fileName(`_${w}x${h}`));   // 画面と同じ大きさ：見えているそのまま
     if (making) return;
     making = true;
     const btns = ["saveAll", "saveTall", "saveBoth"].map($).filter(Boolean), label = $("saveTall").textContent;
@@ -1124,6 +1134,10 @@
   document.querySelectorAll('input[name="wpsize"]').forEach(r => r.addEventListener("change", () => {
     if (!r.checked || !WP_SIZES[r.value]) return;
     wpSize = r.value; store.set(WKEY, wpSize); syncSize();
+    if (GARDEN) {                                  // 花畑は描画エリアを選んだ壁紙の大きさにして並べ直す
+      const { w, h } = WP_SIZES[wpSize];
+      sizeCanvas(w, h); relayout(); placeSeed(); flowers.forEach(f => f.q && render(f));
+    }
   }));
   syncSize();
   $("saveTall").addEventListener("click", () => saveTall(WP_SIZES[wpSize]));
@@ -1142,7 +1156,7 @@
   $("saver").addEventListener("click", e => { if (e.target === $("saver")) closeSaver(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("saver").hidden) closeSaver(); });
 
-  document.querySelectorAll('input[name="motion"]').forEach(r => r.addEventListener("change", () => { if (r.checked) setMotion(r.value); }));
+  document.querySelectorAll('input[name="motion"]').forEach(r => r.addEventListener("change", () => { if (r.checked) { layout.motionChosen = true; setMotion(r.value); } }));
   // 起動：URL の ?seed= を最優先。次に保存済みの花、どちらもなければ新しいシードで生成
   syncColor(); recolor();
   let urlSeed = null;
@@ -1162,5 +1176,6 @@
   else if (hasSaved && flowers.every(f => f.q)) { showSeed(); if (GARDEN) relayout(); flowers.forEach(render); }
   else generate(seed !== null && !edited ? seed : newSeed());
   setMotion(layout.motion === "dynamic" ? "dynamic" : "static");
+  if (GARDEN) placeSeed();
   requestPaint();
 })();
