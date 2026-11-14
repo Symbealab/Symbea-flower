@@ -404,7 +404,7 @@
   if (saved.color && !("set" in saved.color)) color.set = "";     // セットがなかったころに保存した色はカスタム扱い
   if (color.set !== "" && !COLOR_SETS[+color.set]) color.set = "";
   if (G === 1) color.mode = "same";          // 1 輪では同色だけ
-  const layout = { size: GARDEN ? 1 : 0.92, vary: 1, ...(saved.layout || {}) };
+  const layout = { size: GARDEN ? 1 : 0.92, vary: 1, motion: "static", ...(saved.layout || {}) };
   let seed = Number.isSafeInteger(saved.seed) && saved.seed >= 0 && saved.seed < SEED_SPACE ? saved.seed : null, edited = !!saved.edited;
 
   // 点の数は花の面積に比例させる（1 輪は 3 × 3 の 1 マスより 9 倍大きいので、上限 6 倍まで増やす）
@@ -521,11 +521,83 @@
   // 1 フレームに 1 回だけ合成する
   let paintReq = 0;
   const requestPaint = () => { if (!paintReq) paintReq = requestAnimationFrame(() => { paintReq = 0; paint(); }); };
+  const drawables = () => GARDEN ? pieces.map(p => [p, flowers[p.fi]]) : flowers.map(f => [f, f]);
   function paint() {
-    compose(GARDEN ? pieces.map(p => [p, flowers[p.fi]]) : flowers.map(f => [f, f]), S, S, F, img.data);
     wrap.style.background = color.bg; wrap.classList.toggle("clear", color.transparent);
     $("seed").style.color = isLight() ? "rgba(0, 0, 0, .3)" : "rgba(255, 255, 255, .32)";
+    if (motionOn()) return;                       // 動的なときは毎フレーム animate が描く
+    compose(drawables(), S, S, F, img.data);
     ctx.putImageData(img, 0, 0);
+  }
+  // 保存用の静止画（動的なときも、回転・点灯していない静的な姿を合成する）
+  function stillCanvas() {
+    if (!motionOn()) return canvas;
+    compose(drawables(), S, S, F, img.data);
+    const out = Object.assign(document.createElement("canvas"), { width: S, height: S });
+    out.getContext("2d").putImageData(img, 0, 0);
+    return out;
+  }
+
+  // ==================================================================================
+  // 動的モーション：花ごとに 70〜90 bpm の心拍で、ゆっくり回りながら点灯する。
+  // 花ごとのヒストグラムを色付きの画像（スプライト）にしておき、毎フレーム回転・拡大して重ねる
+  // （明るい背景では乗算、暗い背景ではスクリーン。静的な合成と同じ重ね方）。
+  // 心拍は「ドクン（強）・ドクン（弱）」の 2 つの山で、山のときに少し大きくなり、同じ花をもう一度薄く重ねて点灯させる。
+  // テンポ・位相・回転の向きと速さは花ごとに、シードの系列 20 + 番号で決まる
+  // ==================================================================================
+  const motionOn = () => layout.motion === "dynamic";
+  const bump = (x, c, w) => { const u = (x - c) / w; return Math.exp(-u * u); };
+  const heart = ph => bump(ph, 0.02, 0.045) + 0.55 * bump(ph, 0.24, 0.05) + bump(ph, 1.02, 0.045);
+  let colorVer = 0, animReq = 0, motionT0 = 0;      // motionT0：動き始めた時刻（そのときの向きは静的な姿と同じ）
+  function motionOf(d, i) {
+    if (!d.mo) {
+      const r = seedRng(((seed ?? 0) + i * 7919) % SEED_SPACE, 20), small = GARDEN ? clip(1 - d.r / (S * 0.25), 0, 1) : 0;
+      d.mo = { bpm: 70 + 20 * r(), ph: r(),
+               spin: (r() < 0.5 ? -1 : 1) * (0.04 + 0.05 * r()) * (1 + 0.8 * small) };   // rad/s（およそ 2〜5°/s、小さい花ほど少し速い）
+    }
+    return d.mo;
+  }
+  // ヒストグラム → 色付きのスプライト（花の画素だけ不透明、ほかは透明）
+  function sprite(d, f) {
+    const key = `${d.job}|${colorVer}|${f.ci}`, now = performance.now();
+    if (d.spr && d.sprKey === key && (d.sprPts === d.pts || now - d.sprAt < 400)) return d.spr;
+    const C = d.C, h = d.hist, lm = Math.log1p(d.max), L = LUTS[f.ci], g = color.gamma, ex = color.exposure;
+    if (!d.spr || d.spr.width !== C) d.spr = Object.assign(document.createElement("canvas"), { width: C, height: C });
+    const c = d.spr.getContext("2d"), im = c.createImageData(C, C), px = im.data;
+    for (let k = 0; k < C * C; k++) {
+      const v0 = h[k]; if (!v0) continue;
+      const t = (Math.min(1, Math.pow(Math.log1p(v0) / lm, g) * ex) * 255) | 0;
+      px[k * 4] = L[t * 3] * 255; px[k * 4 + 1] = L[t * 3 + 1] * 255; px[k * 4 + 2] = L[t * 3 + 2] * 255; px[k * 4 + 3] = 255;
+    }
+    c.putImageData(im, 0, 0);
+    d.sprKey = key; d.sprPts = d.pts; d.sprAt = now;
+    return d.spr;
+  }
+  function animate(ms) {
+    animReq = 0;
+    if (!motionOn()) return;
+    const t = ms / 1000, light = isLight(), op = light ? "multiply" : "screen";
+    ctx.save();
+    ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
+    if (color.transparent) ctx.clearRect(0, 0, S, S); else { ctx.fillStyle = color.bg; ctx.fillRect(0, 0, S, S); }
+    ctx.globalCompositeOperation = op;
+    drawables().forEach(([d, f], i) => {
+      if (!d.hist || !f.q) return;
+      const mo = motionOf(d, i), spr = sprite(d, f);
+      const env = heart(((t * mo.bpm / 60 + mo.ph) % 1 + 1) % 1);
+      const C = d.C, cx = d.ox + C / 2, cy = d.oy + C / 2, sc = 1 + 0.045 * env;
+      ctx.setTransform(1, 0, 0, 1, cx, cy); ctx.rotate(mo.spin * (t - motionT0)); ctx.scale(sc, sc);
+      ctx.globalAlpha = 1; ctx.drawImage(spr, -C / 2, -C / 2);
+      if (env > 0.03) { ctx.globalAlpha = Math.min(1, 0.55 * env); ctx.drawImage(spr, -C / 2, -C / 2); }   // 点灯
+    });
+    ctx.restore();
+    animReq = requestAnimationFrame(animate);
+  }
+  function setMotion(m) {
+    layout.motion = m; save();
+    document.querySelectorAll('input[name="motion"]').forEach(r => { r.checked = r.value === m; });
+    if (motionOn()) { motionT0 = performance.now() / 1000; if (!animReq) animReq = requestAnimationFrame(animate); }
+    else { cancelAnimationFrame(animReq); animReq = 0; ctx.setTransform(1, 0, 0, 1, 0, 0); requestPaint(); }
   }
   // [ヒストグラムを持つもの, 花] の組を W × H px に合成して、RGBA の d に書く（F は作業用の W × H × 3）
   function compose(items, W, H, F, d) {
@@ -701,6 +773,7 @@
   // 1 輪のときは並び順の先頭の種類になるので、花の種類もシードでランダムに決まる（3 × 3 の左上と同じ花）
   function generate(s) {
     seed = s; edited = false;
+    flowers.forEach(f => { f.mo = null; });        // 心拍のテンポ・回転もシードで決め直す
     const perm = order(seed);
     flowers.forEach(f => {
       if (f.ci !== perm[f.idx]) { clearFlower(f); f.q = null; }
@@ -805,7 +878,7 @@
   function recolor() {
     $("sameColors").hidden = color.mode !== "same";
     $("eachColors").hidden = color.mode !== "each";
-    buildLUT(); save(); requestPaint();
+    buildLUT(); colorVer++; save(); requestPaint();
   }
   const colorShow = COLOR_SLIDERS.map(([k, label, lo, hi, st, dg]) =>
     slider($("colorSliders"), label, lo, hi, st, dg, () => color[k], v => { color[k] = v; recolor(); }));
@@ -892,7 +965,7 @@
   }
   function withSeedLabel() {
     const out = Object.assign(document.createElement("canvas"), { width: S, height: S }), c = out.getContext("2d");
-    c.drawImage(canvas, 0, 0);
+    c.drawImage(stillCanvas(), 0, 0);
     const p = seedPos();
     drawSeedLabel(c, S, S, 0.013, p.x, p.y);
     return out;
@@ -911,7 +984,7 @@
     const V = Math.round(W * SAFE), left = Math.round((W - V) / 2), top = Math.round((H - V) / 2);
     if (!color.transparent) { c.fillStyle = color.bg; c.fillRect(0, 0, W, H); }
     c.imageSmoothingQuality = "high";
-    c.drawImage(canvas, left, top, V, V);
+    c.drawImage(stillCanvas(), left, top, V, V);
     const p = seedPos(), k = V / S;
     drawSeedLabel(c, V, V, 0.013, left + p.x * k, top + p.y * k);
     return out;
@@ -975,7 +1048,7 @@
   const PT_COLS = 3;
   function pattern(W, H) {
     const B = W / PT_COLS, cell = B / 3, rows = Math.floor(H / B), y0 = Math.round((H - rows * B) / 2);
-    const sheet = downscale(canvas, Math.round(cell * 3)), sc = sheet.width / 3;
+    const sheet = downscale(stillCanvas(), Math.round(cell * 3)), sc = sheet.width / 3;
     const out = Object.assign(document.createElement("canvas"), { width: W, height: H }), c = out.getContext("2d");
     if (!color.transparent) { c.fillStyle = color.bg; c.fillRect(0, 0, W, H); }
     const r = seedRng(seed ?? 0, 11);
@@ -1069,6 +1142,7 @@
   $("saver").addEventListener("click", e => { if (e.target === $("saver")) closeSaver(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("saver").hidden) closeSaver(); });
 
+  document.querySelectorAll('input[name="motion"]').forEach(r => r.addEventListener("change", () => { if (r.checked) setMotion(r.value); }));
   // 起動：URL の ?seed= を最優先。次に保存済みの花、どちらもなければ新しいシードで生成
   syncColor(); recolor();
   let urlSeed = null;
@@ -1087,5 +1161,6 @@
   if (urlSeed !== null && !(urlSeed === seed && !edited)) generate(urlSeed);
   else if (hasSaved && flowers.every(f => f.q)) { showSeed(); if (GARDEN) relayout(); flowers.forEach(render); }
   else generate(seed !== null && !edited ? seed : newSeed());
+  setMotion(layout.motion === "dynamic" ? "dynamic" : "static");
   requestPaint();
 })();
