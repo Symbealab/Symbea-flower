@@ -39,18 +39,16 @@
       <label class="check"><input type="checkbox" id="rollColor"> 探索のたびに色も変える</label>
       <div id="layoutSliders"></div>
       <div class="seg" role="radiogroup" aria-label="動き">
-        <label><input type="radio" name="motion" value="static"> 静的</label>
         <label><input type="radio" name="motion" value="dynamic"> 動的</label>
+        <label><input type="radio" name="motion" value="static"> 静的</label>
       </div>
       <p class="hint" style="margin:4px 0 0">動的：花がそれぞれ 70〜90 bpm の鼓動に合わせて、ゆっくり回りながら点灯します（保存する画像は静的な姿）。</p>
       <div class="seg" role="radiogroup" aria-label="壁紙のサイズ">
         <label><input type="radio" name="wpsize" value="iphone"> iPhone 1320×2868</label>
         <label><input type="radio" name="wpsize" value="android"> Android 1440×3200</label>
       </div>
-      <div class="row">
-        <button id="saveAll">PNG で保存</button>
-        <button id="saveTall">1320 × 2868 で保存</button>
-      </div>
+      <button id="saveAll" hidden>PNG で保存</button>
+      <button id="saveTall">1320 × 2868 で保存</button>
       <button id="saveBoth" hidden>縦長を両サイズで保存</button>
 
       <h4>色彩</h4>
@@ -78,7 +76,8 @@
   大きい順に 9 輪は 3 × 3 の並び順の 9 つの花そのもの、それより小さい花は 9 つからランダムに選び、回転と姿の変化を 1 輪ずつ変えます。
   「大きさ」は花の大きさの基準（ビジュアルの一辺の 70% × 大きさ）で、変えると並べ直します。同じシード・同じ大きさなら同じ花畑になります。
   左下のシードを入力欄に入れるか、URL に <code>?seed=12桁の数</code> を付けると、同じ花畑を再現できます。
-  縦長の壁紙は iPhone（1320 × 2868）と Android（1440 × 3200）の 2 サイズから選べます。壁紙の全体に同じシードで花畑を並べ直して描くので、画面の正方形とは配置が変わります（作るのに数秒〜十数秒かかります）。ファイル名はシードに <code>_garden</code> を付けたものです。</p>
+  描画エリアは壁紙と同じ大きさで、iPhone（1320 × 2868）と Android（1440 × 3200）から選べます。サイズを変えると、その大きさに花畑を並べ直します。
+  保存すると、見えている花畑がそのまま壁紙になります（パソコンの「両サイズで保存」では、もう 1 つのサイズを並べ直して描くので数秒かかります）。ファイル名はシードに <code>_garden</code> を付けたものです。</p>
 
   <footer>Base: <a href="https://github.com/Symbealab/Generative-flower-Order-Chaos">github.com/Symbealab/Generative-flower-Order-Chaos</a></footer>
 </main>
